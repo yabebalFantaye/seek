@@ -57,7 +57,7 @@ def plot_data(data, ax, title, vmin=None, vmax=None, cb=True, norm=None, extent=
     
     if cb:
         divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="20%", pad=0.05)
+        cax = divider.append_axes("right", size="2%", pad=0.05)
         cbar = pylab.colorbar(im, cax=cax)
 
 def plot_moments(data):
@@ -104,6 +104,20 @@ def plot_steps(data, st_mask, smoothed_data, res, eta):
     plot_data(res, ax[1,1], "residuals")
     f.show()
 
+    
+def plot_data_masks(data, gt_mask, pr_mask,
+                        tit=('TOD','GT Mask','Mask'),
+                        stitle=None, **kwargs):
+    """
+    Plot individual steps of SumThreshold.
+    """
+    import pylab
+    f, (ax1,ax2,ax3) = pylab.subplots(3,1, figsize=(15,12))
+    if not stitle is None: f.suptitle(stitle)
+    plot_data(data, ax1,tit[0])
+    plot_data(gt_mask, ax2,tit[1], **kwargs)
+    plot_data(pr_mask, ax3,tit[2], **kwargs)
+    f.show()
 
 def plot_dilation(st_mask, mask, dilated_mask):
     """

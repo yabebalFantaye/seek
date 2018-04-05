@@ -182,6 +182,9 @@ def _get_data(path, ctx):
             mask = _get_spectral_kurtosis_mask(path, 
                                               ctx.params.accumulations,
                                               ctx.params.accumulation_offset)
+        if ctx.params.rfi_gt_mask:
+            mask = _get_simulated_rfi_mask(path, ctx.params.m9703a_mode,
+                                               fraction=ctx.params.rfi_mask_frac)
             
     else:
         raise TypeError("Unsupported file type: '%s'"%ctx.params.file_type)
@@ -274,6 +277,35 @@ def _get_spectral_kurtosis_mask(path, accumulations, accumulation_offset):
                                       accumulation_offset)
         return mask
 
+def _get_simulated_rfi_mask(path, m9703a_mode, fraction=0):
+    """
+    Get RFI mask based on the spectra kurtosis.
+
+    :param path: path to the file
+    :param accumulations: number of accumulations for the kurtosis calculation
+    :param accumulation_offset: offset to convert the recorded values to physical
+    kurtosis values
+
+    :return: kurtosis-based RFI mask
+    """
+    with h5py.File(path, "r") as fp:
+        p_phase0 = fp["P/Phase0"].value
+        p_phase1 = fp["P/Phase1"].value
+        p2_phase0 = fp["RFI/Phase0"].value
+        p2_phase1 = fp["RFI/Phase1"].value
+        rfi = p2_phase0 + p2_phase1
+        if m9703a_mode == MODE_PHASE_SWITCH:
+            tod = p_phase1 - p_phase0
+        elif m9703a_mode == MODE_TOTAL_POWER:
+            tod = p_phase0 + p_phase1
+        else:
+            raise TypeError("Unsupported M9703A_MODE: '%s'"%m9703a_mode)
+        
+        rfi_frac=100*np.abs(rfi/tod)
+        mask = rfi_frac<fraction #1 if zero rfi 
+        
+        return mask
+    
 
 
 def _integrate(data, masks, frequencies, time_axes, ctx):
