@@ -22,6 +22,7 @@ from __future__ import print_function, division, absolute_import, unicode_litera
 from ivy.plugin.base_plugin import BasePlugin
 import h5py
 import os
+import numpy as np
 
 class Plugin(BasePlugin):
     """
@@ -40,8 +41,22 @@ class Plugin(BasePlugin):
                                 filename)
         
         with h5py.File(filepath, "w") as fp:
-            fp["data"] = self.ctx.tod_vx.data
-            fp["gt_mask"] = self.ctx.tod_vx.mask
+            tod = self.ctx.tod_vx.data
+            fp["data"] = tod
+            
+            if 'rfi_map' in dir(self.ctx.params):
+                rfi = self.ctx.params.rfi_map
+                fp["rfi_map"] = rfi
+                rfi_mask = 100*np.abs(rfi/tod) > self.ctx.params.rfi_mask_frac  #frac is in percentage
+                fp["gt_mask"] = np.bitwise_or(self.ctx.tod_vx.mask, rfi_mask)
+                
+                print("Writing TOD file {0}".format(filepath))
+                r = np.divide(100.0*np.sum(rfi_mask), np.product(rfi_mask.shape))
+                print("Fraction of RFI contaminated pixels = {0:.0f}%".format(r))
+                print("")
+            else:
+                fp["gt_mask"] = self.ctx.tod_vx.mask
+                
             fp["frequencies"] = self.ctx.frequencies
             fp["time"] = self.ctx.time_axis
             fp["ra"] = self.ctx.coords.ra

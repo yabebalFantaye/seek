@@ -55,7 +55,11 @@ class Plugin(BasePlugin):
 
             data = apply_gain(self.ctx.frequencies, self.ctx.tod_vy, self.ctx.gain_file)
             self.ctx.tod_vy = np.ma.array(data, mask=self.ctx.tod_vy.mask)
-
+            
+            self.ctx.params.rfi_map = apply_gain(self.ctx.frequencies,
+                                                     self.ctx.params.rfi_map,
+                                                     self.ctx.gain_file)
+            
         except KeyError:
             pass
 

@@ -45,7 +45,8 @@ SPECTROMETER_M9703A = 'M9703A'
 FITS_FILE_TYPE = 'fits'
 HDF5_FILE_TYPE = 'hdf5'
 
-TimeOrderedData = namedtuple("TimeOrderedData", ["strategy_start", "frequencies", "time_axis", "vx", "vy", "ref_channel"])
+TimeOrderedData = namedtuple("TimeOrderedData", ["strategy_start", "frequencies", "time_axis",
+                                                     "vx", "vy", "rfi_maps", "ref_channel"])
 
 
 def get_observation_start(path, file_type):
@@ -110,7 +111,7 @@ def load_tod(file_paths, ctx):
     max_frequency = ctx.params.max_frequency
     assert min_frequency <= max_frequency
     
-    tod, mask, frequencies, time_axis = _get_data(file_paths[0], ctx)
+    tod, mask, rfi_map, frequencies, time_axis = _get_data(file_paths[0], ctx)
     
     assert min_frequency <= frequencies[-1] 
     
@@ -122,17 +123,25 @@ def load_tod(file_paths, ctx):
     tods = [tod[min_freq_idx:max_freq_idx, :]]
     time_axes = [time_axis]
     masks = []
+    rfi_maps=[]
     if mask is not None:
         masks.append(mask[min_freq_idx:max_freq_idx, :])
+        
+    if rfi_map is not None:
+            rfi_maps.append(rfi_map[min_freq_idx:max_freq_idx, :])
     
     for file_path in file_paths[1:]:
-        tod, mask, frequencies, time_axis = _get_data(file_path, ctx)       
+        tod, mask, rfi_map, frequencies, time_axis = _get_data(file_path, ctx)       
         frequencies = frequencies[min_freq_idx:max_freq_idx]
         assert np.all(main_freqs == frequencies)
         tods.append(tod[min_freq_idx:max_freq_idx, :])
         time_axes.append(time_axis)
+        
         if mask is not None:
             masks.append(mask[min_freq_idx:max_freq_idx, :])
+            
+        if rfi_map is not None:
+            rfi_maps.append(rfi_map[min_freq_idx:max_freq_idx, :])
     
     tods = np.hstack(tods)
     time_axes = np.hstack(time_axes)
@@ -140,12 +149,19 @@ def load_tod(file_paths, ctx):
         masks = np.hstack(masks)
     else:
         masks = None
-    
+        
+    if len(rfi_maps)>0:
+        rfi_maps = np.hstack(rfi_maps)
+    else:
+        rfi_maps = None
+        
     ref_channel_freq = ctx.params.ref_channel_freq
     ref_channel_idx = (np.fabs(main_freqs-ref_channel_freq)).argmin()
     ref_channel = tods[ref_channel_idx]
-    tod_vx, tod_vy, frequencies, time_axes = _integrate(tods, masks, main_freqs, time_axes, ctx)
-    return TimeOrderedData(strategy_start, frequencies, time_axes, tod_vx, tod_vy, ref_channel)
+    
+    tod_vx, tod_vy, rfi_maps, frequencies, time_axes = _integrate(tods, masks, rfi_maps, main_freqs, time_axes, ctx)
+        
+    return TimeOrderedData(strategy_start, frequencies, time_axes, tod_vx, tod_vy, rfi_maps, ref_channel)
     
 
 
@@ -174,6 +190,7 @@ def _get_data(path, ctx):
     :returns tod, frequencies: data and the frequency of the data
     """
     mask = None
+    rfi_map=None
     if ctx.params.file_type == FITS_FILE_TYPE:
         tod, frequencies, time_axis = _get_data_from_fits(path)
     elif ctx.params.file_type == HDF5_FILE_TYPE:
@@ -183,7 +200,7 @@ def _get_data(path, ctx):
                                               ctx.params.accumulations,
                                               ctx.params.accumulation_offset)
         if ctx.params.rfi_gt_mask:
-            mask = _get_simulated_rfi_mask(path, ctx.params.m9703a_mode,
+            mask,rfi_map = _get_simulated_rfi_mask(path, ctx.params.m9703a_mode,
                                                fraction=ctx.params.rfi_mask_frac)
             
     else:
@@ -191,7 +208,7 @@ def _get_data(path, ctx):
 
     frequencies = convert_to_radio_frequency(frequencies, ctx.params.spectrometer)
 
-    return tod, mask, frequencies, time_axis
+    return tod, mask, rfi_map, frequencies, time_axis
 
 def _get_data_from_fits(path):
     """
@@ -251,6 +268,7 @@ def _get_data_from_hdf5(path, m9703a_mode):
     date = get_observation_start_from_hdf5(path)
     date_in_h = date.hour + date.minute / 60 + date.second / 3600
     time_axis = date_in_h + 1. / 3600 * time_axis
+
     return tod, frequencies, time_axis
 
 def _get_spectral_kurtosis_mask(path, accumulations, accumulation_offset):
@@ -293,22 +311,24 @@ def _get_simulated_rfi_mask(path, m9703a_mode, fraction=0):
         p_phase1 = fp["P/Phase1"].value
         p2_phase0 = fp["RFI/Phase0"].value
         p2_phase1 = fp["RFI/Phase1"].value
-        rfi = p2_phase0 + p2_phase1
         if m9703a_mode == MODE_PHASE_SWITCH:
             tod = p_phase1 - p_phase0
-        elif m9703a_mode == MODE_TOTAL_POWER:
+            rfi = p2_phase0 - p2_phase1            
+        elif m9703a_mode == MODE_TOTAL_POWER:            
             tod = p_phase0 + p_phase1
+            rfi = p2_phase0 + p2_phase1            
         else:
             raise TypeError("Unsupported M9703A_MODE: '%s'"%m9703a_mode)
         
-        rfi_frac=100*np.abs(rfi/tod)
-        mask = rfi_frac<fraction #1 if zero rfi 
+        #since here gain calibration is not done
+        #mask should not yet be defined. It will be defined later
+        mask=None
         
-        return mask
+        return mask, rfi
     
 
 
-def _integrate(data, masks, frequencies, time_axes, ctx):
+def _integrate(data, masks, rfi_maps, frequencies, time_axes, ctx):
     """
     Integrate over time and frequency on the TOD plane.
 
@@ -328,7 +348,11 @@ def _integrate(data, masks, frequencies, time_axes, ctx):
     
     data = smooth(data, integration_time, axis=1)
     data = smooth(data, integration_frequency, axis=0)
-    
+
+    if rfi_maps is not None:
+        rfi_maps = smooth(rfi_maps, integration_time, axis=1)
+        rfi_maps = smooth(rfi_maps, integration_frequency, axis=0)
+        
     if masks is not None:
         # 'real' mask
         masks = masks
@@ -340,7 +364,7 @@ def _integrate(data, masks, frequencies, time_axes, ctx):
     tod_vx = ma.array(data, mask=masks)
     tod_vy = ma.array(data, mask=masks)
     
-    return tod_vx, tod_vy, frequencies, time_axes
+    return tod_vx, tod_vy, rfi_maps, frequencies, time_axes
     
 
 
@@ -361,6 +385,7 @@ class Plugin(BasePlugin):
         self.ctx.tod_vx = tod.vx
         self.ctx.tod_vy = tod.vy
         self.ctx.ref_channel = tod.ref_channel
+        self.ctx.params.rfi_map = tod.rfi_maps
         
     def __str__(self):
         return "Load data"

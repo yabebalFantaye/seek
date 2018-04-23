@@ -28,21 +28,48 @@ from seek.config import process_survey
 for name in [name for name in dir(process_survey) if not name.startswith("__")]:
     globals()[name] = getattr(process_survey, name)
 
+plugins = ["seek.plugins.find_nested_files",
+           "seek.plugins.calibration",
+            "seek.plugins.initialize",
+# comment out everything below when doing calibration-only analysis
+           ParallelPluginCollection([
+#                                     "seek.plugins.load_preprocessed_data",
+                                    "seek.plugins.load_data",
+                                    "seek.plugins.pre_process_tod",
+                                    "seek.plugins.process_coords",
+#                                    "seek.plugins.mask_objects",
+#                                    "seek.plugins.mask_artefacts",
+#                                    "seek.plugins.remove_RFI",
+#                                    "seek.plugins.post_process_tod",
+                                    "seek.plugins.post_process_todrfi",                                    
+#                                    "seek.plugins.background_removal",
+                                    "seek.plugins.restructure_tod",
+                                     ],
+                                     "seek.plugins.map_file_paths",
+                                     "seek.plugins.reduce_map_indicies"
+                                     ),
+            ParallelPluginCollection(["seek.plugins.create_maps"],
+                                     "seek.plugins.map_indicies",
+                                     "seek.plugins.reduce_maps"),
+            "seek.plugins.write_maps",
+            "ivy.plugin.show_stats",
+            ]
+    
 # ==================================================================
 # D A T A  L O A D I N G
 # ==================================================================
 file_prefix = "./data/"
 
 integration_time = 1                 # no of pixel to use for integration in time (axis=1)
-integration_frequency = 20           # no of pixel to use for integration in freq (axis=0)
+integration_frequency = 1            # no of pixel to use for integration in freq (axis=0)
 max_frequency = 1260
 min_frequency = 990
 
 # ==================================================================
 # F I L E   I N P U T
 # ==================================================================
-strategy_start = "2016-03-01-00:00:00"      # survey start time. Format YYYY-mm-dd-HH:MM:SS
-strategy_end   = "2016-03-30-23:59:00"      # survey end time. Format YYYY-mm-dd-HH:MM:SS
+strategy_start = "2016-10-26-00:00:00"      # survey start time. Format YYYY-mm-dd-HH:MM:SS
+strategy_end   = "2016-12-31-23:59:00"      # survey end time. Format YYYY-mm-dd-HH:MM:SS
 
 spectrometer = "M9703A"
 data_file_prefix = "TEST_MP_PXX_"                 # First part of fit file name
@@ -56,7 +83,7 @@ chunk_size = 100                              # number of files to be grouped to
 # ==================================================================
 # F I L E   O U T P U T
 # ==================================================================
-post_processing_prefix='data/hide_simcalib_30days'
+post_processing_prefix='data/hide_simcalib_1year'
 
 # ---------------------------
 # F F T   s p e c t r o m e t e r
@@ -64,7 +91,8 @@ post_processing_prefix='data/hide_simcalib_30days'
 m9703a_mode = "phase_switch"                # FFT spectrometer accusition mode
 
 rfi_gt_mask = True                        # True if RFI mask should be written to utput
-rfi_mask_frac = 0.01                      # percentage of RFI fraction to mask
+rfi_mask_frac = 0.001                      # percentage of RFI fraction to mask
+rfi_map=True
 
 spectral_kurtosis = False                    # True if spectral kurtosis masking should be used
 accumulations = 146484                      # number of spectrum accumulations

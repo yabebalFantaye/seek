@@ -39,14 +39,16 @@ def get_stats(rfi, rfi_mask):
     
     return len(rfi_idx_set), len(mask_idx_set), len(intersect)
     
-def plot_data(data, ax, title, vmin=None, vmax=None, cb=True, norm=None, extent=None, cmap=None):
+def plot_data(data, ax, title, vmin=None, vmax=None,
+                  cb=True, norm=None, extent=None,
+                  cmap=None, **kwargs):
     """
     Plot TOD.
     """
     import pylab
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     
-    ax.set_title(title)
+    ax.set_title(title,fontsize=kwargs.pop('tfontsize',16))
     im = ax.imshow(data, 
             aspect="auto", 
             origin="lower",
@@ -105,18 +107,19 @@ def plot_steps(data, st_mask, smoothed_data, res, eta):
     f.show()
 
     
-def plot_data_masks(data, gt_mask, pr_mask,
-                        tit=('TOD','GT Mask','Mask'),
+def plot_data_masks(data_list,
+                        tit=('TOD','Ground Truth','Prediction','Difference'),
+                        figsize=(15,12),
                         stitle=None, **kwargs):
     """
     Plot individual steps of SumThreshold.
     """
     import pylab
-    f, (ax1,ax2,ax3) = pylab.subplots(3,1, figsize=(15,12))
+    f, ax_list = pylab.subplots(len(data_list),1, figsize=figsize)
     if not stitle is None: f.suptitle(stitle)
-    plot_data(data, ax1,tit[0])
-    plot_data(gt_mask, ax2,tit[1], **kwargs)
-    plot_data(pr_mask, ax3,tit[2], **kwargs)
+    for data, ax, t in zip(data_list, ax_list, tit):
+        plot_data(data, ax, t, **kwargs)
+
     f.show()
 
 def plot_dilation(st_mask, mask, dilated_mask):
