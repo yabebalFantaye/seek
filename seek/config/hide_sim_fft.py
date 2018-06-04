@@ -41,9 +41,10 @@ plugins = ["seek.plugins.find_nested_files",
 #                                    "seek.plugins.mask_artefacts",
 #                                    "seek.plugins.remove_RFI",
 #                                    "seek.plugins.post_process_tod",
-                                    "seek.plugins.post_process_todrfi",                                    
+                                    "seek.plugins.post_process_todrfi",
+#                                    "seek.plugins.post_process_todrfi_sdfits",
 #                                    "seek.plugins.background_removal",
-                                    "seek.plugins.restructure_tod",
+#                                    "seek.plugins.restructure_tod",
                                      ],
                                      "seek.plugins.map_file_paths",
                                      "seek.plugins.reduce_map_indicies"
@@ -54,7 +55,7 @@ plugins = ["seek.plugins.find_nested_files",
             "seek.plugins.write_maps",
             "ivy.plugin.show_stats",
             ]
-    
+
 # ==================================================================
 # D A T A  L O A D I N G
 # ==================================================================
@@ -69,7 +70,7 @@ min_frequency = 990
 # F I L E   I N P U T
 # ==================================================================
 strategy_start = "2016-10-26-00:00:00"      # survey start time. Format YYYY-mm-dd-HH:MM:SS
-strategy_end   = "2016-12-31-23:59:00"      # survey end time. Format YYYY-mm-dd-HH:MM:SS
+strategy_end   = "2016-10-26-23:59:00"      # survey end time. Format YYYY-mm-dd-HH:MM:SS
 
 spectrometer = "M9703A"
 data_file_prefix = "TEST_MP_PXX_"                 # First part of fit file name
