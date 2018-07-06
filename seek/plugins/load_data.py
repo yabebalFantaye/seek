@@ -376,7 +376,7 @@ class Plugin(BasePlugin):
 
     def __call__(self):
         if self.ctx.params.verbose:
-            print("Current files: %s"%("\n".join(self.ctx.file_paths)))
+            print("Current 10 files: %s"%("\n".join(self.ctx.file_paths[0:10])))
     
         tod = load_tod(self.ctx.file_paths, self.ctx)
         self.ctx.strategy_start = tod.strategy_start

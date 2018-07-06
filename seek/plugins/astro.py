@@ -3050,47 +3050,6 @@ FIRST_LEAP_UTC = 2441317.5
 
 _LEAP_SEC_LIST = []
 
-# lookup location of TAI/UTC almanac data file in location 
-# <package_dir>/data/astro/tai-utc.dat
-def _parse_tai_file():
-	import os
-	from lsl.common.paths import data as dataPath
-	
-	# get path to almanac data file
-	datName = os.path.join(dataPath, 'astro', 'tai-utc.dat') 
-	if not os.path.exists(datName):
-		raise RuntimeError("file %s not found" % datName)        
-		
-	# read tai-utc.dat file to get conversion info
-	datFile = open(datName, 'r')
-	datLines = datFile.readlines()
-	datFile.close()
-	
-	lineNum = 0
-	for l in datLines:
-		# get UTC JD of leap second boundaries
-		try:
-			utcJD = float(l[16:26])
-		except ValueError:
-			raise RuntimeError("line %d of %s file not correctly formatted" % (lineNum, datName))
-			
-		# only get values prior to UTC JD 2441317.5 (1972 JAN  1)
-		if utcJD < FIRST_LEAP_UTC:
-			lineNum += 1
-			continue    
-			
-		# get leap second asjustment value
-		try:
-			leapSec = float(l[36:48])
-		except ValueError:
-			raise RuntimeError("line %d of %s file not correctly formatted" % (lineNum, datName))
-			
-		# add entry to list
-		_LEAP_SEC_LIST.append((utcJD, leapSec, sec_to_jd(leapSec)))    
-		lineNum += 1
-
-
-_parse_tai_file()
 
 
 ######################################################################

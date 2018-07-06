@@ -21,7 +21,7 @@ import pyfits
 import warnings
 from datetime import datetime
 
-from lsl import astro
+import astro
 #from lsl.common.stations import lwa1
 
 __version__ = '0.5'
@@ -65,10 +65,20 @@ class SD(object):
 		Representns one spectrum for a given observation time.
 		"""
 		
-		def __init__(self, obsTime, intTime, dataDict, pol=StokesCodes['XX']):
+		def __init__(self, obsTime, intTime, dataDict, pol=StokesCodes['XX'],
+                             rfiDict=None,
+                             rfiMaskDict=None,
+                             flagDict=None):
+                        
 			self.obsTime = obsTime
 			self.intTime = intTime
 			self.dataDict = dataDict
+                        if rfiDict:
+                                self.rfiDict=rfiDict
+                        if rfiMaskDict:
+                                self.rfiMaskDict=rfiMaskDict
+                        if flagDict:
+                                self.flagDict=flagDict                                
 			self.pol = pol
 		
 		def time(self):
@@ -166,14 +176,14 @@ class SD(object):
 		"""
 
 		for pol in polList:
-			if type(pol) == str:
+			if isinstance(pol, str) or isinstance(pol, unicode):
 				numericPol = StokesCodes[pol.upper()]
 			else:
 				numericPol = pol
 				
 			if numericPol not in self.stokes:
 				self.stokes.append(numericPol)
-				
+
 		# Sort into order of 'XX', 'YY', 'XY', and 'YX' or 'I', 'Q', 'U', and 'V'
 		self.stokes.sort()
 		if self.stokes[0] < 0:
@@ -206,7 +216,11 @@ class SD(object):
 		self.project = project
 		self.mode = mode
 
-	def addDataSet(self, obsTime, intTime, beam, data, pol='XX'):
+	def addDataSet(self, obsTime, intTime, beam, data,
+                       pol='XX',
+                       rfi=None,
+                       rfi_mask=None,
+                       flag=None):
 		"""
 		Create a SpectrometerData object to store a collection of spectra.
 		"""
@@ -217,10 +231,24 @@ class SD(object):
 			numericPol = pol
 		
 		dataDict = {}
+                rfiDict = {}
+                rfiMaskDict = {}
+                flagDict = {}
+                
 		for i,b in enumerate(beam):
-			dataDict[b] = data[i,:]
-
-		self.data.append( self._SpectrometerData(obsTime, intTime, dataDict, pol=numericPol) )
+			dataDict[b] = data[i,:]                
+                        if not rfi is None:
+                                rfiDict[b] = rfi[i,:]
+                        if not rfi_mask is None:
+                                rfiMaskDict[b] = rfi_mask[i,:]
+                        if not flag is None:
+                                flagDict[b] = flag[i,:]
+                        
+		self.data.append( self._SpectrometerData(obsTime, intTime, dataDict,
+                                                         pol=numericPol,
+                                                         rfiDict=rfiDict,
+                                                         rfiMaskDict=rfiMaskDict,
+                                                         flagDict=flagDict) )
 
 	def write(self):
 		"""
@@ -289,14 +317,40 @@ class SD(object):
 		intTimeList = []
 		beamList = []
 		mList = []
+                rfiList = []
+                rfiMaskList = []
+                flagList = []
 		rawList = []
 		scanCount = 1
+                add_rfi=False
+                add_rfi_mask=False
+                add_flag=False
+                
 		for i,dataSet in enumerate(self.data):
 			if dataSet.pol == self.stokes[0]:
 				tempMList = {}
 				for stokes in self.stokes:
 					tempMList[stokes] = {}
-		
+                                #RFI
+                                if hasattr(dataSet, 'rfiDict'):                         
+                                        add_rfi=True
+                                        tempRFIList = {}
+                                        for stokes in self.stokes:                                        
+                                                tempRFIList[stokes] = {}
+                                                
+                                #RFI_MASK
+                                if hasattr(dataSet, 'rfiMaskDict'):
+                                        add_rfi_mask=True
+                                        tempRFIMaskList = {}
+                                        for stokes in self.stokes:                                        
+                                                tempRFIMaskList[stokes] = {}
+                                #FLAG_MASK
+                                if hasattr(dataSet, 'flagDict'):
+                                        add_flag=True
+                                        tempFlagList = {}
+                                        for stokes in self.stokes:                                        
+                                                tempFlagList[stokes] = {}
+                                                
 			beams = list(dataSet.dataDict.keys())
 			beams.sort()
 			for b in beams:
@@ -304,10 +358,20 @@ class SD(object):
 				
 				# Load the data into a matrix
 				tempMList[dataSet.pol][b] = specData.ravel()
-				
+                                if add_rfi:
+                                        tempRFIList[dataSet.pol][b] = dataSet.rfiDict[b].ravel()
+                                if add_rfi_mask:
+                                        tempRFIMaskList[dataSet.pol][b] = dataSet.rfiMaskDict[b].ravel()
+                                if add_flag:
+                                        tempFlagList[dataSet.pol][b] = dataSet.flagDict[b].ravel()
+                                
+				#if i==0:
+                                #        print('sdfits: b,dataSet.pol,len(dataSet[b])',b,dataSet.pol,specData.ravel().shape)
+                                        
 				if dataSet.pol == self.stokes[0]:
 					# Observation date and time
-					utc = astro.taimjd_to_utcjd(dataSet.obsTime)
+					#utc = astro.taimjd_to_utcjd(dataSet.obsTime)
+                                        utc = dataSet.obsTime
 					date = astro.get_date(utc)
 					date.hours = 0
 					date.minutes = 0
@@ -318,22 +382,40 @@ class SD(object):
 					dateList.append('%4i-%02i-%02i' % (date.years, date.months, date.days))
 					timeList.append((utc - utc0)*24*3600)
 					intTimeList.append(dataSet.intTime)
-					beamList.append(b.id)
+					beamList.append(b)
 					rawList.append(b)
 			
 			if dataSet.pol == self.stokes[-1]:
 				for b in rawList:
 					matrix = numpy.zeros((self.nStokes,self.nChan), dtype=numpy.float32)
+					matrix_rfi = numpy.zeros((self.nStokes,self.nChan), dtype=numpy.float32)
+					matrix_rfi_mask = numpy.zeros((self.nStokes,self.nChan), dtype=numpy.int)
+					matrix_flag = numpy.zeros((self.nStokes,self.nChan), dtype=numpy.int) 
 					for p in xrange(self.nStokes):
 						try:
 							matrix[p,:] = tempMList[self.stokes[p]][b]
+                                                        if add_rfi:
+                                                                matrix_rfi[p,:] = tempRFIList[self.stokes[p]][b]
+                                                        if add_rfi_mask:
+                                                                matrix_rfi_mask[p,:] = tempRFIMaskList[self.stokes[p]][b]
+                                                        if add_flag:
+                                                                matrix_flag[p,:] = tempFlagList[self.stokes[p]][b]
+                                                                
 						except KeyError:
-							warnings.warn('Key mis-match %s %s' % (str(b), str(tempMList[self.stokes[p]].keys())), RuntimeWarning)
+							warnings.warn('Key mis-match %s %s' % (str(b),
+                                                                                               str(tempMList[self.stokes[p]].keys())),
+                                                                      RuntimeWarning)
 							
 					mList.append(matrix.ravel())
+                                        if add_rfi:                                        
+                                                rfiList.append(matrix_rfi.ravel())
+                                        if add_rfi_mask:
+                                                rfiMaskList.append(matrix_rfi_mask.ravel())
+                                        if add_flag:
+                                                flagList.append(matrix_flag.ravel()) 
 				scanCount += 1
-				rawList = []
-		
+				rawList = []                
+                
 		# Scan number
 		c1  = pyfits.Column(name='SCAN', format='1I', 
 						array=numpy.array(scanList))
@@ -404,14 +486,33 @@ class SD(object):
 		# Data
 		c23 = pyfits.Column(name='DATA', format='%iE' % (self.nStokes*self.nChan), unit='UNCALIB', 
 						array=numpy.array(mList))
+
+		#
+		# RFI Simulation information
+		#
+                
+		# RFI table
+                if add_rfi:
+                        c24 = pyfits.Column(name='RFI', format='%iE' % (self.nStokes*self.nChan), unit='UNCALIB', 
+						array=numpy.array(rfiList))
+
+		# RFI MASK table                        
+                if add_rfi_mask:
+                        c25 = pyfits.Column(name='RFI_MASK', format='%iB' % (self.nStokes*self.nChan), 
+						array=numpy.array(rfiMaskList))		
+                        
+		# Flag table                        
+                if add_flag:
+                        c26 = pyfits.Column(name='FLAGGED', format='%iB' % (self.nStokes*self.nChan), 
+						array=numpy.array(flagList))		
+                else:
+                        c26 = pyfits.Column(name='FLAGGED', format='%iB' % (self.nStokes*self.nChan), 
+						array=numpy.array([[0,]*self.nStokes*self.nChan for s in scanList]))		
+                        
 						
 		#
 		# Data masking table (currently not implemented)
 		#
-		# Flag table
-		#c24 = pyfits.Column(name='FLAGGED', format='%iB' % (self.nStokes*self.nChan), 
-						#array=numpy.array([[0,]*self.nStokes*self.nChan for s in scanList]))
-		
 		#
 		# Calibration information (currently not implemented)
 		#
@@ -471,6 +572,7 @@ class SD(object):
 		# store the data and flag tables.  This information is needed later to
 		# set the appropriate TDIM keywords.
 		cs = []
+                cs_new=[]
 		dataIndex = 0
 		#flagIndex = 0
 		n = 1
@@ -479,11 +581,19 @@ class SD(object):
 				cs.append(eval('c%i' % i))
 				if eval('c%i.name' %i) == 'DATA':
 					dataIndex = n
-				#if eval('c%i.name' %i) == 'FLAGGED':
-					#flagIndex = n
+				if eval('c%i.name' %i) == 'RFI':
+					rfiIndex = n
+                                        cs_new.append(eval('c%i' % i))
+				if eval('c%i.name' %i) == 'RFI_MASK':
+					rfiMaskIndex = n
+                                        cs_new.append(eval('c%i' % i))                                        
+				if eval('c%i.name' %i) == 'FLAGGED':
+					flagIndex = n
 				n += 1
 			except NameError:
+                                #if 20<i<28: print('sdfits: passing column name: c%s'%i)
 				pass
+                        
 		colDefs = pyfits.ColDefs(cs)
 
 		# Create the SINGLE DISH table and update its header
@@ -507,7 +617,7 @@ class SD(object):
 		
 		## Data and flag table dimensionality
 		sd.header.set('TDIM%i' % dataIndex, '(%i,%i,1,1)' % (self.nChan, self.nStokes), after='TFORM%i' % dataIndex)
-		#sd.header.set('TDIM%i' % flagIndex, '(%i,%i,1,1)' % (self.nChan, self.nStokes), after='TFORM%i' % flagIndex)
+		sd.header.set('TDIM%i' % flagIndex, '(%i,%i,1,1)' % (self.nChan, self.nStokes), after='TFORM%i' % flagIndex)
 		
 		## Data and flag table axis descriptions
 		### Frequency
@@ -531,6 +641,21 @@ class SD(object):
 		sd.header.insert('TTYPE1', ('CTYPE4', 'DEC', 'axis 4 is Dec. axis (pointing)'))
 		sd.header.insert('TTYPE1', ('CRPIX4', 1.0))
 		sd.header.insert('TTYPE1', ('CDELT4', 1.0))
-		
+
 		self.FITS.append(sd)
+                
+                if cs_new:
+                        colDefs2 = pyfits.ColDefs(cs_new)                        
+                        # Create the RFI table and update its header
+                        sd2 = pyfits.new_table(colDefs2)
+                        sd2.header.set('EXTNAME', 'RFI', 'SDFITS table name', after='TFIELDS')
+                        sd2.header.set('NMATRIX', 1, after='EXTNAME')                        
+                
+                        ## Data and flag table dimensionality
+                        sd2.header.set('TDIM%i' % rfiIndex, '(%i,%i,1,1)' % (self.nChan, self.nStokes),
+                                       after='TFORM%i'%1)
+                        sd2.header.set('TDIM%i' % rfiMaskIndex, '(%i,%i,1,1)' % (self.nChan, self.nStokes),
+                                       after='TFORM%i'%2)
+                        self.FITS.append(sd2)		
+
 		self.FITS.flush()

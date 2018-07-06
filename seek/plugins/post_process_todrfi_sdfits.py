@@ -25,8 +25,12 @@ import os
 import numpy as np
 
 #
-from sdfits import SD as sdfits
+from seek.plugins.sdfits import SD as sdfits
+import seek.plugins.jdutil as jdutil
+import seek.plugins.astro as astro
 import ephem
+import datetime
+
 
 """
 Offset in days between standard Julian day and Dublin Julian day.
@@ -41,11 +45,11 @@ def geo2ecef(lat, lon, elev):
 	
 	WGS84_a = 6378137.000000
 	WGS84_b = 6356752.314245
-	N = WGS84_a**2 / numpy.sqrt(WGS84_a**2*numpy.cos(lat)**2 + WGS84_b**2*numpy.sin(lat)**2)
+	N = WGS84_a**2 / np.sqrt(WGS84_a**2*np.cos(lat)**2 + WGS84_b**2*np.sin(lat)**2)
 	
-	x = (N+elev)*numpy.cos(lat)*numpy.cos(lon)
-	y = (N+elev)*numpy.cos(lat)*numpy.sin(lon)
-	z = ((WGS84_b**2/WGS84_a**2)*N+elev)*numpy.sin(lat)
+	x = (N+elev)*np.cos(lat)*np.cos(lon)
+	y = (N+elev)*np.cos(lat)*np.sin(lon)
+	z = ((WGS84_b**2/WGS84_a**2)*N+elev)*np.sin(lat)
 	
 	return (x, y, z)
 
@@ -62,35 +66,35 @@ def ecef2geo(x, y, z):
 	ep2 = (WGS84_a**2 - WGS84_b**2) / WGS84_b**2
 	
 	# Distance from rotation axis
-	p = numpy.sqrt(x**2 + y**2)
+	p = np.sqrt(x**2 + y**2)
 	
 	# Longitude
-	lon = numpy.arctan2(y, x)
-	p = numpy.sqrt(x**2 + y**2)
+	lon = np.arctan2(y, x)
+	p = np.sqrt(x**2 + y**2)
 	
 	# Latitude (first approximation)
-	lat = numpy.arctan2(z, p)
+	lat = np.arctan2(z, p)
 	
 	# Latitude (refined using Bowring's method)
-	psi = numpy.arctan2(WGS84_a*z, WGS84_b*p)
-	num = z + WGS84_b*ep2*numpy.sin(psi)**3
-	den = p - WGS84_a*e2*numpy.cos(psi)**3
-	lat = numpy.arctan2(num, den)
+	psi = np.arctan2(WGS84_a*z, WGS84_b*p)
+	num = z + WGS84_b*ep2*np.sin(psi)**3
+	den = p - WGS84_a*e2*np.cos(psi)**3
+	lat = np.arctan2(num, den)
 	
 	# Elevation
-	N = WGS84_a**2 / numpy.sqrt(WGS84_a**2*numpy.cos(lat)**2 + WGS84_b**2*numpy.sin(lat)**2)
-	elev = p / numpy.cos(lat) - N
+	N = WGS84_a**2 / np.sqrt(WGS84_a**2*np.cos(lat)**2 + WGS84_b**2*np.sin(lat)**2)
+	elev = p / np.cos(lat) - N
 	
 	return lat, lon, elev
 
-class Station(ephem.Observer)
+class Station(ephem.Observer):
 	def __init__(self, name, lat, long, elev, id='', antennas=None, interface=None):
         
 		self.init_info(name, id=id, antennas=antennas, interface=interface)
 		ephem.Observer.__init__(self)
 		
-		self.lat = lat * numpy.pi/180.0
-		self.long = long * numpy.pi/180.0
+		self.lat = lat * np.pi/180.0
+		self.long = long * np.pi/180.0
 		self.elev = elev
 		self.pressure = 0.0
         
@@ -158,8 +162,13 @@ class Plugin(BasePlugin):
         
         filename = os.path.basename(self.ctx.file_paths[0])
         filepath = os.path.join(self.ctx.params.post_processing_prefix,
-                                filename.split('.')[0],'.fits')
+                                filename.split('.')[0])+'.fits'
 
+        flag_dir=os.path.join(self.ctx.params.post_processing_prefix,'flagged')
+        if not os.path.exists(flag_dir):
+                os.mkdir(flag_dir)
+        filepath_flag = os.path.join(flag_dir,filename.split('.')[0])+'.fits'
+        
         #get all necessary data
         tod = self.ctx.tod_vx.data
         #fp["ra"] = self.ctx.coords.ra
@@ -177,39 +186,83 @@ class Plugin(BasePlugin):
             print("")
         else:
             rfi_mask = self.ctx.tod_vx.mask
+            rfi = rfi_mask*1.0
             
+        # #----- first write hdf5 files -----
+        # with h5py.File(filepath, "w") as fp:
+        #     tod = self.ctx.tod_vx.data
+        #     fp["data"] = tod
+            
+        #     if 'rfi_map' in dir(self.ctx.params):
+        #         fp["rfi_map"] = rfi
+        #         fp["gt_mask"] = np.bitwise_or(self.ctx.tod_vx.mask, rfi_mask)
+        #     else:
+        #         fp["gt_mask"] = self.ctx.tod_vx.mask
+                
+        #     fp["frequencies"] = self.ctx.frequencies
+        #     fp["time"] = self.ctx.time_axis
+        #     fp["ra"] = self.ctx.coords.ra
+        #     fp["dec"] = self.ctx.coords.dec
+        #     fp["ref_channel"] = self.ctx.ref_channel
+
+        #----- write sdfits files -----            
         #telescope data
         lon = self.ctx.params.telescope_longitude
         lat = self.ctx.params.telescope_latitude
-        elv = self.ctx.params.beam_elevation
+        elv = self.ctx.params.telescope_elevation
         
         #Start writing sdfits file
-        sd = sdfits(filepath, refTime=self.ctx.batch_start_date,
+        sd_rfi = sdfits(filepath, refTime=self.ctx.strategy_start,
                         verbose=False,
                         memmap=None,
                         clobber=self.ctx.params.overwrite)
 
-        
-        site = Station('belein',lat,lon,elv)
-        sd.setsite(site)
-        sd.setStoke(['XX'])
-        sd.setFrequency(self.ctx.frequencies)
-        sd.setObserver('UNKNOWN')
+        sd_flag = sdfits(filepath_flag, refTime=self.ctx.strategy_start,
+                        verbose=False,
+                        memmap=None,
+                        clobber=self.ctx.params.overwrite)
 
         #integration time 
         intTime = self.ctx.params.integration_time
-        beam = ['TOD','RFI','RFI_MASK']
+        beam = ['TOD']
+        beam = [0]
+        
+        for sdname, sd in zip(['rfi','flag'],[sd_rfi,sd_flag]):
+                if sdname == 'rfi':
+                        print('Saving RFI sdfits..')
+                else:
+                        print('Saving FLAG sdfits')
+                        
+                site = Station('Arecibo',lat,lon,elv)
+                sd.setSite(site)
+                sd.setStokes(['XX'])
+                sd.setFrequency(self.ctx.frequencies)
+                sd.setObserver('UNKNOWN')
 
-        for ix, obsTime in enumerate(self.ctx.time_axis):
-            #define different data as different beams
-            tod_ix = np.stack([tod[:,ix],rfi[:,ix],rfi_mask[:,ix]],axis=0)                            
-            sd.addDataSet(self, obsTime,
-                          intTime,
-                          beam,
-                          tod_ix,
-                          pol='XX'):
-        sd.write()
-        sd.close()
+        
+                for ix, dt in enumerate(self.ctx.time_axis):
+                        obsTime_dt = self.ctx.strategy_start + datetime.timedelta(seconds=int(dt*3600))
+                        obsTime_jd = jdutil.datetime_to_jd(obsTime_dt)
+                        # if ix<10:
+                        #         print(obsTime_dt, obsTime_jd,type(obsTime_dt), type(obsTime_jd))             
+
+                        if sdname == 'rfi':
+                                sd.addDataSet(obsTime_jd,
+                                  intTime,
+                                  beam,
+                                  np.expand_dims(tod[:,ix],axis=0),
+                                  rfi=np.expand_dims(rfi[:,ix],axis=0),
+                                  rfi_mask=np.expand_dims(rfi_mask[:,ix],axis=0)
+                                )
+                        else:
+                                sd.addDataSet(obsTime_jd,
+                                  intTime,
+                                  beam,
+                                  np.expand_dims(tod[:,ix],axis=0),
+                                )
+                    
+                sd.write()
+                sd.close()
                                        
     def __str__(self):
         return "postprocessing TOD and writing to SDFITS"

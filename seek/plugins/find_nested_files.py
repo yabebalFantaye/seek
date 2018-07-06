@@ -35,6 +35,10 @@ CALIBRATION_FILE_FORMAT = "CALIBRATION_RSG_7m_%04d%02d%02d.txt"
 
 SKIP_FILE_NAME = "skip"
 
+def daterange(start_date, end_date):
+    for n in range(int ((end_date - start_date).days)):
+        yield start_date + timedelta(n)
+                
 def is_skiped(path, date, prefix):
     """
     Determine whether the date is skipped.
@@ -97,10 +101,10 @@ class Plugin(BasePlugin):
     def __call__(self):
         strategy_start = parse_datetime(self.ctx.params.strategy_start)
         strategy_end   = parse_datetime(self.ctx.params.strategy_end)
-        
+
         pattern = "^%s(?P<date>\w+)%s$"%(self.ctx.params.data_file_prefix,
                                          self.ctx.params.data_file_suffix)
-        
+
         p = re.compile(pattern)
         
         date_format = self.ctx.params.file_date_format
@@ -114,17 +118,24 @@ class Plugin(BasePlugin):
         
         date = strategy_start
         DAY = timedelta(1)
+
+        print('processing date ranges:',strategy_start, strategy_end)
         
-        while strategy_start <= date <= strategy_end:
-            path = os.path.join(file_prefix, "%04d"%date.year, "%02d"%date.month, "%02d"%date.day)
-            
+        #for date in daterange(strategy_start, strategy_end):
+        while strategy_start <= date <= strategy_end:    
+            #while strategy_start <= date <= strategy_end:
+            path = os.path.join(file_prefix, "%04d"%date.year, "%02d"%date.month, "%02d"%date.day)            
             if not is_skiped(path, date, prefix):
                 coords_paths[format_date(date)] = get_coords_path(path, date, prefix)
+                
                 data_files_per_day = []
-                for filename in sorted(os.listdir(path)):
+                dir_file_list = sorted(os.listdir(path))
+                        
+                for filename in dir_file_list:
                     match = p.match(filename)
                     if match is not None:
                         file_date = parse_datetime(match.group("date"), date_format)
+                        
                         #TODO: something smarter needs to be done here!
                         if strategy_start <= file_date <= strategy_end:
                             if date.year == file_date.year and date.month == file_date.month and date.day == file_date.day:
@@ -132,7 +143,7 @@ class Plugin(BasePlugin):
                         else:
                             if self.ctx.params.verbose:
                                 print("skipping", os.path.join(path, filename))
-                            
+                                
                 if len(data_files_per_day) > 0:
                     if is_calibration_day(path, date):
                         calibrations_paths[format_date(date)] = (get_calibration_path(path, date), data_files_per_day)

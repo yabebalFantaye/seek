@@ -29,7 +29,7 @@ class Plugin(object):
     
     def getWorkload(self):
         chunk_size = self.ctx.params.chunk_size
-        for files_per_day in self.ctx.data_file_paths:
+        for files_per_day in self.ctx.data_file_paths:            
             for file_paths in chunk(files_per_day, chunk_size):
                 ctx = self.ctx.copy()
                 ctx.file_paths = file_paths

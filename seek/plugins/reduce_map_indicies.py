@@ -30,10 +30,14 @@ class Plugin(object):
     def reduce(self, ctxList):
         paths = []
         pixels = []
+        i=0
         for ctx in ctxList:
             paths.append(ctx.restructured_tod_path)
             pixels.extend(ctx.restructured_tod_pixels)
-        
+            frequencies=ctx.frequencies
+            i+=1
+            
         self.ctx.tod_paths = paths
         self.ctx.restructured_tod_pixels = list(set(pixels)) #remove duplicates
-        self.ctx.frequencies = ctx.frequencies
+        if i>0:
+            self.ctx.frequencies = frequencies
